@@ -1,64 +1,59 @@
 name: Build and Push HMD Kernel Repos
 
 on:
-  # 1. Allows you to manually trigger a build for a specific device
   workflow_dispatch:
     inputs:
       device_name:
         description: 'Device name to build (e.g., "Nokia 3")'
         required: true
         type: string
-
-  # 2. Runs automatically every Sunday at 02:00 UTC
   schedule:
     - cron: '0 2 * * 0'
 
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # This permission is for the checkout action, not the PAT
 
     steps:
-      # --- SETUP ---
       - name: Check out repository code
         uses: actions/checkout@v4
 
       - name: Install Dependencies
         run: sudo apt-get update && sudo apt-get install -y jq
 
+      # --- This is an optional but helpful debugging step ---
       - name: Verify Secret is Present
-        if: env.GITHUB_TOKEN == ''
         run: |
-          echo "Error: HMD_ARCHIVE_TOKEN secret is not set or is empty."
-          echo "Please check the repository's Settings > Secrets and variables > Actions."
-          exit 1
-        env:
-          GITHUB_TOKEN: ${{ secrets.HMD_ARCHIVE_TOKEN }}
-          
-      # --- MANUAL TRIGGER: Build a single device ---
+          if [ -z "${{ secrets.HMD_ARCHIVE_TOKEN }}" ]; then
+            echo "Error: HMD_ARCHIVE_TOKEN secret is not set or is empty."
+            exit 1
+          else
+            echo "Secret is present. Proceeding."
+          fi
+
       - name: Run for a specific device (Manual Trigger)
         if: github.event_name == 'workflow_dispatch'
         env:
-          GITHUB_TOKEN: ${{ secrets.HMD_ARCHIVE_TOKEN }}
+          # Use GH_TOKEN instead of GITHUB_TOKEN
+          GH_TOKEN: ${{ secrets.HMD_ARCHIVE_TOKEN }}
         run: |
           chmod +x ./build_and_push.sh
           ./build_and_push.sh "${{ github.event.inputs.device_name }}"
 
-      # --- SCHEDULED TRIGGER: Build all devices that have updates ---
       - name: Run for all devices (Scheduled Trigger)
         if: github.event_name == 'schedule'
         env:
-          GITHUB_TOKEN: ${{ secrets.HMD_ARCHIVE_TOKEN }}
+          # Use GH_TOKEN instead of GITHUB_TOKEN
+          GH_TOKEN: ${{ secrets.HMD_ARCHIVE_TOKEN }}
         run: |
+          # ... (The rest of this step remains the same)
           chmod +x ./build_and_push.sh
-          
-          # Fetch the list of all device names from the tracker repo's JSON
           JSON_REPO="crsvt/hmd-opensource-tracker"
           JSON_URL="https://raw.githubusercontent.com/${JSON_REPO}/main/hmd_versions.json"
-          
           echo "Fetching device list from $JSON_URL"
           DEVICE_LIST=$(curl -sL "$JSON_URL" | jq -r 'keys[]')
-          
-          # Loop through each device and run the build script
           while IFS= read -r device; do
             echo "-----------------------------------------------------"
             echo "Processing device: $device"
