@@ -54,7 +54,7 @@ fi
 echo "$JSON_DATA" | jq -r --arg device "$DEVICE_HUMAN" '.[$device][] | "\(.name) \(.link)"' | while read -r ARCHIVE_NAME URL; do
     TAG="${ARCHIVE_NAME%.tar.*}"; LOCAL="${CACHE_DIR}/${ARCHIVE_NAME}"; if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null 2>&1; then echo "==> SKIP $TAG (tag exists)"; continue; fi;
     echo "==> Processing $TAG"; if [ ! -f "$LOCAL" ]; then echo "-> Downloading $URL"; curl -fL --retry 3 --retry-delay 2 -o "$LOCAL" "$URL"; else echo "-> Using cache $LOCAL"; fi;
-    SUM="$(sha256 "$LOCAL")"; echo "-> SHA256 $SUM"; TMPDIR="$(mktemp -d -t kernel_extract.XXXXXX)"; trap 'rm -rf "$TMP_DIR"' EXIT; echo "-> Extracting archive..."; if [[ "$ARCHIVE_NAME" == *.bz2 ]]; then tar -xjf "$LOCAL" -C "$TMPDIR"; elif [[ "$ARCHIVE_NAME" == *.gz ]]; then tar -xzf "$LOCAL" -C "$TMPDIR"; else tar -xf "$LOCAL" -C "$TMPDIR"; fi;
+    SUM="$(sha256 "$LOCAL")"; echo "-> SHA256 $SUM"; TMPDIR="$(mktemp -d -t kernel_extract.XXXXXX)"; trap 'rm -rf "$TMPDIR"' EXIT; echo "-> Extracting archive..."; if [[ "$ARCHIVE_NAME" == *.bz2 ]]; then tar -xjf "$LOCAL" -C "$TMPDIR"; elif [[ "$ARCHIVE_NAME" == *.gz ]]; then tar -xzf "$LOCAL" -C "$TMPDIR"; else tar -xf "$LOCAL" -C "$TMPDIR"; fi;
     KDIR=""; while IFS= read -r -d '' d; do if [ -f "$d/Makefile" ] && [ -d "$d/arch" ] && [ -d "$d/drivers" ]; then KDIR="$d"; break; fi; done < <(find "$TMPDIR" -type d -print0);
     if [ -z "$KDIR" ]; then echo "ERROR: No valid kernel root found in $ARCHIVE_NAME" >&2; exit 1; fi;
     KFOLDER="$(basename "$KDIR")"; echo "-> Using detected kernel root: $KFOLDER"; clean_repo_root; rsync -a --exclude='.git' "$KDIR"/ "$PWD"/; rm -f ".DS_Store" || true;
