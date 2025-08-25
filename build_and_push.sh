@@ -42,7 +42,7 @@ DEVICE_SLUG=$(echo "$DEVICE_HUMAN" | tr '[:upper:]' '[:lower:]' | tr -s ' .()' '
 echo "=============================================="; echo "Device:          $DEVICE_HUMAN"; echo "GitHub Repo:     $GITHUB_REPO_URL"; echo "Local Directory: $REPO_DIR"; echo "Branch Name:     $BRANCH_NAME"; echo "==============================================";
 echo "-> Checking for existing GitHub repository..."; if ! gh repo view "$GITHUB_REPO_URL" >/dev/null 2>&1; then echo "-> Repository does not exist. Creating it now..."; gh repo create "$GITHUB_REPO_URL" --public --description "Kernel source history for the ${DEVICE_HUMAN}"; echo "-> Repository created successfully."; else echo "-> Repository already exists."; fi;
 mkdir -p "$REPO_DIR"; cd "$REPO_DIR"; if [ ! -d .git ]; then git init; fi; git checkout -B "$BRANCH_NAME"; grep -qxF ".DS_Store" .git/info/exclude 2>/dev/null || echo ".DS_Store" >> .git/info/exclude; grep -qxF ".cache_downloads/" .git/info/exclude 2>/dev/null || echo ".cache_downloads/" >> .git/info/exclude;
-echo ".release-info" > .gitignore; CACHE_DIR="$PWD/.cache_downloads"; mkdir -p "$CACHE_DIR";
+CACHE_DIR="$PWD/.cache_downloads"; mkdir -p "$CACHE_DIR";
 echo "$JSON_DATA" | jq -r --arg device "$DEVICE_HUMAN" '.[$device][] | "\(.name) \(.link)"' | while read -r ARCHIVE_NAME URL; do
     TAG="${ARCHIVE_NAME%.tar.*}"; LOCAL="${CACHE_DIR}/${ARCHIVE_NAME}"; if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null 2>&1; then echo "==> SKIP $TAG (tag exists locally)"; continue; fi;
     echo "==> Processing $TAG"; if [ ! -f "$LOCAL" ]; then echo "-> Downloading $URL"; curl -fL --retry 3 --retry-delay 2 -o "$LOCAL" "$URL"; else echo "-> Using cache $LOCAL"; fi;
@@ -51,14 +51,6 @@ echo "$JSON_DATA" | jq -r --arg device "$DEVICE_HUMAN" '.[$device][] | "\(.name)
     if [ -z "$KDIR" ]; then echo "ERROR: No valid kernel root found in $ARCHIVE_NAME" >&2; exit 1; fi;
     KFOLDER="$(basename "$KDIR")"; echo "-> Using detected kernel root: $KFOLDER"; clean_repo_root; rsync -a --exclude='.git' "$KDIR"/ "$PWD"/; rm -f ".DS_Store" || true;
     VERSION_PART=$(echo "$TAG" | sed -e "s/^${DEVICE_SLUG}_//i" -e "s/^nokia[0-9]*[a-z]*_//i"); COMMIT_DATE="$(get_commit_date "$URL" "$KDIR")"; export GIT_AUTHOR_DATE="$COMMIT_DATE"; export GIT_COMMITTER_DATE="$COMMIT_DATE";
-    cat > .release-info <<EOF
-Device: ${DEVICE_HUMAN}
-Release: ${VERSION_PART}
-Source URL: ${URL}
-Archive: ${ARCHIVE_NAME}
-SHA256: ${SUM}
-Imported subdir: ${KFOLDER} -> repository root
-EOF
     git add -A; git commit -m "${DEVICE_HUMAN}: Import kernel source for ${VERSION_PART}" -m "Source: ${URL}
 Archive: ${ARCHIVE_NAME}
 SHA256: ${SUM}
