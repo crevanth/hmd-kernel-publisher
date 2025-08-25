@@ -2,9 +2,7 @@
 set -euo pipefail
 
 # =================== SCRIPT CONFIG ===================
-# The GitHub organization where the kernel repositories will be created and pushed.
 GITHUB_ORG="Nokia3-development"
-# The repository where your hmd_versions.json file lives.
 JSON_REPO="crevanth/hmd-opensource-tracker"
 JSON_BRANCH="main"
 # =====================================================
@@ -20,7 +18,6 @@ need git; need curl; need tar; need rsync; need jq; need gh
 
 if [ "$#" -ne 2 ]; then
   echo "Usage: $0 <github_token> \"<Device Name>\""
-  echo "This script is intended for automation. The token is passed as an argument."
   exit 1
 fi
 
@@ -32,7 +29,11 @@ if [ -z "$GH_TOKEN" ]; then
     exit 1
 fi
 
-# --- GitHub Authentication ---
+# --- Configure Git and GitHub Authentication ---
+echo "-> Configuring Git user identity..."
+git config --global user.name "GitHub Actions Bot"
+git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
 echo "-> Authenticating with GitHub CLI using token from argument..."
 echo "$GH_TOKEN" | gh auth login --with-token
 echo "-> Checking authentication status..."
