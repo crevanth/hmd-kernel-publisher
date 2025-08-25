@@ -41,7 +41,8 @@ gh auth status
 # --- Fetch and Parse Data ---
 echo "-> Fetching version data for '$DEVICE_HUMAN'..."
 JSON_URL="https://raw.githubusercontent.com/${JSON_REPO}/${JSON_BRANCH}/hmd_versions.json"
-JSON_DATA=$(curl -sL "$JSON_URL")
+JSON_DATA=$(curl -sL --fail "$JSON_URL") || { echo "Error: Failed to fetch JSON data from $JSON_URL" >&2; exit 1; }
+
 if ! echo "$JSON_DATA" | jq -e --arg device "$DEVICE_HUMAN" '.[$device]' > /dev/null; then echo "Error: Device '$DEVICE_HUMAN' not found..." >&2; exit 1; fi
 
 # --- Dynamic Configuration ---
