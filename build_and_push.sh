@@ -22,35 +22,27 @@ if [ -z "$GH_TOKEN" ]; then echo "Error: GitHub token (first argument) is empty.
 
 # --- Configure Git and GitHub Authentication ---
 echo "-> Configuring Git user identity..."; git config --global user.name "GitHub Actions Bot"; git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-echo "-> Authenticating with GitHub CLI..."; echo "$GH_TOKEN" | gh auth login --with-token; echo "-> Setting up Git credential helper..."; gh auth setup-git; echo "-> Checking authentication status..."; gh auth status
+echo "-> Authenticating with GitHub CLI..."; echo "$GH_TOKEN" | gh auth login --with-token
+echo "-> Setting up Git credential helper..."; gh auth setup-git
+
+# --- THIS IS THE FIX ---
+# Verify authentication status, but redirect its output so the token is not printed to the log.
+# The command will still exit with an error if authentication fails.
+echo "-> Verifying authentication status silently..."
+gh auth status &>/dev/null
+# --- END OF FIX ---
 
 # --- Fetch and Parse Data ---
+# ... (The rest of the script is exactly the same) ...
 echo "-> Fetching version data for '$DEVICE_HUMAN'..."
 JSON_URL="https://raw.githubusercontent.com/${JSON_REPO}/${JSON_BRANCH}/hmd_versions.json"
 JSON_DATA=$(curl -sL --fail "$JSON_URL") || { echo "Error: Failed to fetch JSON data from $JSON_URL" >&2; exit 1; }
 if ! echo "$JSON_DATA" | jq -e --arg device "$DEVICE_HUMAN" '.[$device]' > /dev/null; then echo "Error: Device '$DEVICE_HUMAN' not found..." >&2; exit 1; fi
-
-# --- Dynamic Configuration ---
 DEVICE_SLUG=$(echo "$DEVICE_HUMAN" | tr '[:upper:]' '[:lower:]' | tr -s ' .()' '_'); GITHUB_REPO_NAME="android_kernel_${DEVICE_SLUG}"; GITHUB_REPO_URL="${GITHUB_ORG}/${GITHUB_REPO_NAME}"; REPO_DIR="./${GITHUB_REPO_NAME}"; BRANCH_NAME="hmd/${DEVICE_SLUG}";
 echo "=============================================="; echo "Device:          $DEVICE_HUMAN"; echo "GitHub Repo:     $GITHUB_REPO_URL"; echo "Local Directory: $REPO_DIR"; echo "Branch Name:     $BRANCH_NAME"; echo "==============================================";
-
-# --- Manage GitHub Repository ---
 echo "-> Checking for existing GitHub repository..."; if ! gh repo view "$GITHUB_REPO_URL" >/dev/null 2>&1; then echo "-> Repository does not exist. Creating it now..."; gh repo create "$GITHUB_REPO_URL" --public --description "Kernel source history for the ${DEVICE_HUMAN}"; echo "-> Repository created successfully."; else echo "-> Repository already exists."; fi;
-
-# --- Prepare Local Repo ---
-mkdir -p "$REPO_DIR"; cd "$REPO_DIR"; if [ ! -d .git ]; then git init; fi; git checkout -B "$BRANCH_NAME";
-grep -qxF ".DS_Store" .git/info/exclude 2>/dev/null || echo ".DS_Store" >> .git/info/exclude
-grep -qxF ".cache_downloads/" .git/info/exclude 2>/dev/null || echo ".cache_downloads/" >> .git/info/exclude
-
-# --- THIS IS THE FIX ---
-# Create a .gitignore file in the repo to exclude build artifacts.
-echo "-> Ensuring .gitignore is present..."
-echo ".release-info" > .gitignore
-# --- END OF FIX ---
-
-CACHE_DIR="$PWD/.cache_downloads"; mkdir -p "$CACHE_DIR";
-
-# --- Main Loop ---
+mkdir -p "$REPO_DIR"; cd "$REPO_DIR"; if [ ! -d .git ]; then git init; fi; git checkout -B "$BRANCH_NAME"; grep -qxF ".DS_Store" .git/info/exclude 2>/dev/null || echo ".DS_Store" >> .git/info/exclude; grep -qxF ".cache_downloads/" .git/info/exclude 2>/dev/null || echo ".cache_downloads/" >> .git/info/exclude;
+echo ".release-info" > .gitignore; CACHE_DIR="$PWD/.cache_downloads"; mkdir -p "$CACHE_DIR";
 echo "$JSON_DATA" | jq -r --arg device "$DEVICE_HUMAN" '.[$device][] | "\(.name) \(.link)"' | while read -r ARCHIVE_NAME URL; do
     TAG="${ARCHIVE_NAME%.tar.*}"; LOCAL="${CACHE_DIR}/${ARCHIVE_NAME}"; if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null 2>&1; then echo "==> SKIP $TAG (tag exists locally)"; continue; fi;
     echo "==> Processing $TAG"; if [ ! -f "$LOCAL" ]; then echo "-> Downloading $URL"; curl -fL --retry 3 --retry-delay 2 -o "$LOCAL" "$URL"; else echo "-> Using cache $LOCAL"; fi;
@@ -58,10 +50,7 @@ echo "$JSON_DATA" | jq -r --arg device "$DEVICE_HUMAN" '.[$device][] | "\(.name)
     KDIR=""; while IFS= read -r -d '' d; do if [ -f "$d/Makefile" ] && [ -d "$d/arch" ] && [ -d "$d/drivers" ]; then KDIR="$d"; break; fi; done < <(find "$TMPDIR" -type d -print0);
     if [ -z "$KDIR" ]; then echo "ERROR: No valid kernel root found in $ARCHIVE_NAME" >&2; exit 1; fi;
     KFOLDER="$(basename "$KDIR")"; echo "-> Using detected kernel root: $KFOLDER"; clean_repo_root; rsync -a --exclude='.git' "$KDIR"/ "$PWD"/; rm -f ".DS_Store" || true;
-    VERSION_PART=$(echo "$TAG" | sed -e "s/^${DEVICE_SLUG}_//i" -e "s/^nokia[0-9]*[a-z]*_//i");
-    COMMIT_DATE="$(get_commit_date "$URL" "$KDIR")"; export GIT_AUTHOR_DATE="$COMMIT_DATE"; export GIT_COMMITTER_DATE="$COMMIT_DATE";
-    
-    # This file will now be ignored by Git because of the .gitignore entry.
+    VERSION_PART=$(echo "$TAG" | sed -e "s/^${DEVICE_SLUG}_//i" -e "s/^nokia[0-9]*[a-z]*_//i"); COMMIT_DATE="$(get_commit_date "$URL" "$KDIR")"; export GIT_AUTHOR_DATE="$COMMIT_DATE"; export GIT_COMMITTER_DATE="$COMMIT_DATE";
     cat > .release-info <<EOF
 Device: ${DEVICE_HUMAN}
 Release: ${VERSION_PART}
@@ -70,20 +59,14 @@ Archive: ${ARCHIVE_NAME}
 SHA256: ${SUM}
 Imported subdir: ${KFOLDER} -> repository root
 EOF
-
-    # Add everything tracked by Git (which now excludes .release-info)
-    git add -A;
-    git commit -m "${DEVICE_HUMAN}: Import kernel source for ${VERSION_PART}" -m "Source: ${URL}
+    git add -A; git commit -m "${DEVICE_HUMAN}: Import kernel source for ${VERSION_PART}" -m "Source: ${URL}
 Archive: ${ARCHIVE_NAME}
 SHA256: ${SUM}
 Notes:
 - Imported from official open-source release archive.
-- Repository root mirrors '${KFOLDER}' subdirectory from the tarball.";
-    git tag -a "$TAG" -m "${DEVICE_HUMAN} ${VERSION_PART} kernel source drop";
+- Repository root mirrors '${KFOLDER}' subdirectory from the tarball."; git tag -a "$TAG" -m "${DEVICE_HUMAN} ${VERSION_PART} kernel source drop";
     rm -rf "$TMPDIR"; trap - EXIT; echo "==> Committed + tagged $TAG"; echo
 done;
-
-# --- Push to GitHub ---
 echo "-> Pushing changes to GitHub repository: $GITHUB_REPO_URL"; REMOTE_URL="https://github.com/${GITHUB_REPO_URL}.git"; if ! git remote | grep -q '^origin$'; then git remote add origin "$REMOTE_URL"; else git remote set-url origin "$REMOTE_URL"; fi;
 git push -u origin "$BRANCH_NAME"; git push origin --tags; echo "-> Push complete.";
 echo "=============================="; echo "Done."; echo "View your repository at: $REMOTE_URL"; echo "=============================="
