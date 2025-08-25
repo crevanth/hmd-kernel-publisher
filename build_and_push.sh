@@ -36,7 +36,10 @@ JSON_URL="https://raw.githubusercontent.com/${JSON_REPO}/${JSON_BRANCH}/hmd_vers
 
 # --- GitHub Authentication ---
 echo "-> Authenticating with GitHub CLI..."
-echo "$GITHUB_TOKEN" | gh auth login --with-token
+# The only change is right here: adding '2>/dev/null'
+echo "$GITHUB_TOKEN" | gh auth login --with-token 2>/dev/null
+
+echo "-> Checking authentication status..."
 gh auth status
 
 # --- Fetch and Parse Data ---
