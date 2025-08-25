@@ -33,7 +33,6 @@ gh auth status &>/dev/null
 # --- END OF FIX ---
 
 # --- Fetch and Parse Data ---
-# ... (The rest of the script is exactly the same) ...
 echo "-> Fetching version data for '$DEVICE_HUMAN'..."
 JSON_URL="https://raw.githubusercontent.com/${JSON_REPO}/${JSON_BRANCH}/hmd_versions.json"
 JSON_DATA=$(curl -sL --fail "$JSON_URL") || { echo "Error: Failed to fetch JSON data from $JSON_URL" >&2; exit 1; }
@@ -43,10 +42,19 @@ echo "=============================================="; echo "Device:          $D
 echo "-> Checking for existing GitHub repository..."; if ! gh repo view "$GITHUB_REPO_URL" >/dev/null 2>&1; then echo "-> Repository does not exist. Creating it now..."; gh repo create "$GITHUB_REPO_URL" --public --description "Kernel source history for the ${DEVICE_HUMAN}"; echo "-> Repository created successfully."; else echo "-> Repository already exists."; fi;
 mkdir -p "$REPO_DIR"; cd "$REPO_DIR"; if [ ! -d .git ]; then git init; fi; git checkout -B "$BRANCH_NAME"; grep -qxF ".DS_Store" .git/info/exclude 2>/dev/null || echo ".DS_Store" >> .git/info/exclude; grep -qxF ".cache_downloads/" .git/info/exclude 2>/dev/null || echo ".cache_downloads/" >> .git/info/exclude;
 CACHE_DIR="$PWD/.cache_downloads"; mkdir -p "$CACHE_DIR";
+
+# --- Setup Remote URL before the loop ---
+REMOTE_URL="https://github.com/${GITHUB_REPO_URL}.git"
+if ! git remote | grep -q '^origin$'; then
+    git remote add origin "$REMOTE_URL"
+else
+    git remote set-url origin "$REMOTE_URL"
+fi
+
 echo "$JSON_DATA" | jq -r --arg device "$DEVICE_HUMAN" '.[$device][] | "\(.name) \(.link)"' | while read -r ARCHIVE_NAME URL; do
-    TAG="${ARCHIVE_NAME%.tar.*}"; LOCAL="${CACHE_DIR}/${ARCHIVE_NAME}"; if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null 2>&1; then echo "==> SKIP $TAG (tag exists locally)"; continue; fi;
+    TAG="${ARCHIVE_NAME%.tar.*}"; LOCAL="${CACHE_DIR}/${ARCHIVE_NAME}"; if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null 2>&1; then echo "==> SKIP $TAG (tag exists)"; continue; fi;
     echo "==> Processing $TAG"; if [ ! -f "$LOCAL" ]; then echo "-> Downloading $URL"; curl -fL --retry 3 --retry-delay 2 -o "$LOCAL" "$URL"; else echo "-> Using cache $LOCAL"; fi;
-    SUM="$(sha256 "$LOCAL")"; echo "-> SHA256 $SUM"; TMPDIR="$(mktemp -d -t kernel_extract.XXXXXX)"; trap 'rm -rf "$TMPDIR"' EXIT; echo "-> Extracting archive..."; if [[ "$ARCHIVE_NAME" == *.bz2 ]]; then tar -xjf "$LOCAL" -C "$TMPDIR"; elif [[ "$ARCHIVE_NAME" == *.gz ]]; then tar -xzf "$LOCAL" -C "$TMPDIR"; else tar -xf "$LOCAL" -C "$TMPDIR"; fi;
+    SUM="$(sha256 "$LOCAL")"; echo "-> SHA256 $SUM"; TMPDIR="$(mktemp -d -t kernel_extract.XXXXXX)"; trap 'rm -rf "$TMP_DIR"' EXIT; echo "-> Extracting archive..."; if [[ "$ARCHIVE_NAME" == *.bz2 ]]; then tar -xjf "$LOCAL" -C "$TMPDIR"; elif [[ "$ARCHIVE_NAME" == *.gz ]]; then tar -xzf "$LOCAL" -C "$TMPDIR"; else tar -xf "$LOCAL" -C "$TMPDIR"; fi;
     KDIR=""; while IFS= read -r -d '' d; do if [ -f "$d/Makefile" ] && [ -d "$d/arch" ] && [ -d "$d/drivers" ]; then KDIR="$d"; break; fi; done < <(find "$TMPDIR" -type d -print0);
     if [ -z "$KDIR" ]; then echo "ERROR: No valid kernel root found in $ARCHIVE_NAME" >&2; exit 1; fi;
     KFOLDER="$(basename "$KDIR")"; echo "-> Using detected kernel root: $KFOLDER"; clean_repo_root; rsync -a --exclude='.git' "$KDIR"/ "$PWD"/; rm -f ".DS_Store" || true;
@@ -56,9 +64,15 @@ Archive: ${ARCHIVE_NAME}
 SHA256: ${SUM}
 Notes:
 - Imported from official open-source release archive.
-- Repository root mirrors '${KFOLDER}' subdirectory from the tarball."; git tag -a "$TAG" -m "${DEVICE_HUMAN} ${VERSION_PART} kernel source drop";
-    rm -rf "$TMPDIR"; trap - EXIT; echo "==> Committed + tagged $TAG"; echo
+- Repository root mirrors '${KFOLDER}' subdirectory from the tarball.";
+    git tag -a "$TAG" -m "${DEVICE_HUMAN} ${VERSION_PART} kernel source drop";
+    rm -rf "$TMPDIR"; trap - EXIT;
+
+    echo "-> Pushing changes for $TAG to GitHub...";
+    git push -u origin "$BRANCH_NAME"
+    git push origin "$TAG"
+
+    echo "==> Committed, tagged, and pushed $TAG"; echo
 done;
-echo "-> Pushing changes to GitHub repository: $GITHUB_REPO_URL"; REMOTE_URL="https://github.com/${GITHUB_REPO_URL}.git"; if ! git remote | grep -q '^origin$'; then git remote add origin "$REMOTE_URL"; else git remote set-url origin "$REMOTE_URL"; fi;
-git push -u origin "$BRANCH_NAME"; git push origin --tags; echo "-> Push complete.";
-echo "=============================="; echo "Done."; echo "View your repository at: $REMOTE_URL"; echo "=============================="
+
+echo "=============================="; echo "All tasks complete."; echo "View your repository at: $REMOTE_URL"; echo "=============================="
