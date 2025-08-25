@@ -26,8 +26,6 @@ echo "-> Authenticating with GitHub CLI..."; echo "$GH_TOKEN" | gh auth login --
 echo "-> Setting up Git credential helper..."; gh auth setup-git
 
 # --- THIS IS THE FIX ---
-# Verify authentication status, but redirect its output so the token is not printed to the log.
-# The command will still exit with an error if authentication fails.
 echo "-> Verifying authentication status silently..."
 gh auth status &>/dev/null
 # --- END OF FIX ---
@@ -52,9 +50,70 @@ else
 fi
 
 echo "$JSON_DATA" | jq -r --arg device "$DEVICE_HUMAN" '.[$device][] | "\(.name) \(.link)"' | while read -r ARCHIVE_NAME URL; do
-    TAG="${ARCHIVE_NAME%.tar.*}"; LOCAL="${CACHE_DIR}/${ARCHIVE_NAME}"; if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null 2>&1; then echo "==> SKIP $TAG (tag exists)"; continue; fi;
-    echo "==> Processing $TAG"; if [ ! -f "$LOCAL" ]; then echo "-> Downloading $URL"; curl -fL --retry 3 --retry-delay 2 -o "$LOCAL" "$URL"; else echo "-> Using cache $LOCAL"; fi;
-    SUM="$(sha256 "$LOCAL")"; echo "-> SHA256 $SUM"; TMPDIR="$(mktemp -d -t kernel_extract.XXXXXX)"; trap 'rm -rf "$TMPDIR"' EXIT; echo "-> Extracting archive..."; if [[ "$ARCHIVE_NAME" == *.bz2 ]]; then tar -xjf "$LOCAL" -C "$TMPDIR"; elif [[ "$ARCHIVE_NAME" == *.gz ]]; then tar -xzf "$LOCAL" -C "$TMPDIR"; else tar -xf "$LOCAL" -C "$TMPDIR"; fi;
+    TAG="${ARCHIVE_NAME%.tar.*}"; LOCAL="${CACHE_DIR}/${ARCHIVE_NAME}"; 
+    if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null 2>&1; then 
+        echo "==> SKIP $TAG (tag exists)"; 
+        continue; 
+    fi;
+
+    echo "==> Processing $TAG"; 
+    if [ ! -f "$LOCAL" ]; then 
+        echo "-> Downloading $URL"; 
+        if ! curl -fL --retry 3 --retry-delay 2 -o "$LOCAL" "$URL"; then
+            echo "!! Download failed after retries (URL dead or 404)"
+            COMMIT_DATE="$(get_commit_date "$URL" ".")"; export GIT_AUTHOR_DATE="$COMMIT_DATE"; export GIT_COMMITTER_DATE="$COMMIT_DATE";
+            git commit --allow-empty -m "${DEVICE_HUMAN}: Skipping ${TAG} (download failed)" \
+                -m "Source: ${URL}
+Archive: ${ARCHIVE_NAME}
+Notes:
+- URL not reachable or returned 404."
+            git tag -a "$TAG" -m "${DEVICE_HUMAN} ${TAG} kernel source drop (MISSING)"
+            git push -u origin "$BRANCH_NAME"
+            git push origin "$TAG"
+            continue
+        fi
+    else 
+        echo "-> Using cache $LOCAL"; 
+    fi;
+
+    SUM="$(sha256 "$LOCAL")"; 
+    echo "-> SHA256 $SUM"; 
+
+    # --- Extraction with retry ---
+    success=false
+    for attempt in 1 2 3; do
+        TMPDIR="$(mktemp -d -t kernel_extract.XXXXXX)"
+        trap 'rm -rf "$TMPDIR"' EXIT
+
+        echo "-> Extracting archive (attempt $attempt)..."
+        if [[ "$ARCHIVE_NAME" == *.bz2 ]]; then
+            tar -xjf "$LOCAL" -C "$TMPDIR" && success=true && break
+        elif [[ "$ARCHIVE_NAME" == *.gz ]]; then
+            tar -xzf "$LOCAL" -C "$TMPDIR" && success=true && break
+        else
+            tar -xf "$LOCAL" -C "$TMPDIR" && success=true && break
+        fi
+
+        echo "!! Extraction failed on attempt $attempt"
+        rm -rf "$TMPDIR"
+    done
+
+    if [ "$success" != true ]; then
+        echo "!! Archive corrupted after 3 attempts"
+        COMMIT_DATE="$(get_commit_date "$URL" ".")"; export GIT_AUTHOR_DATE="$COMMIT_DATE"; export GIT_COMMITTER_DATE="$COMMIT_DATE";
+        git commit --allow-empty -m "${DEVICE_HUMAN}: Skipping ${TAG} (corrupted archive)" \
+            -m "Source: ${URL}
+Archive: ${ARCHIVE_NAME}
+SHA256: ${SUM}
+Notes:
+- Archive failed to extract after 3 attempts."
+        git tag -a "$TAG" -m "${DEVICE_HUMAN} ${TAG} kernel source drop (CORRUPTED)"
+        git push -u origin "$BRANCH_NAME"
+        git push origin "$TAG"
+        continue
+    fi
+    # --- End extraction retry ---
+
     KDIR=""; while IFS= read -r -d '' d; do if [ -f "$d/Makefile" ] && [ -d "$d/arch" ] && [ -d "$d/drivers" ]; then KDIR="$d"; break; fi; done < <(find "$TMPDIR" -type d -print0);
     if [ -z "$KDIR" ]; then echo "ERROR: No valid kernel root found in $ARCHIVE_NAME" >&2; exit 1; fi;
     KFOLDER="$(basename "$KDIR")"; echo "-> Using detected kernel root: $KFOLDER"; clean_repo_root; rsync -a --exclude='.git' "$KDIR"/ "$PWD"/; rm -f ".DS_Store" || true;
