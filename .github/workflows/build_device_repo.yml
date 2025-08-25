@@ -13,8 +13,6 @@ on:
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write # This permission is for the checkout action, not the PAT
 
     steps:
       - name: Check out repository code
@@ -23,40 +21,25 @@ jobs:
       - name: Install Dependencies
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      # --- This is an optional but helpful debugging step ---
-      - name: Verify Secret is Present
-        run: |
-          if [ -z "${{ secrets.HMD_ARCHIVE_TOKEN }}" ]; then
-            echo "Error: HMD_ARCHIVE_TOKEN secret is not set or is empty."
-            exit 1
-          else
-            echo "Secret is present. Proceeding."
-          fi
-
+      # MANUAL TRIGGER: Pass the secret and device name as arguments
       - name: Run for a specific device (Manual Trigger)
         if: github.event_name == 'workflow_dispatch'
-        env:
-          # Use GH_TOKEN instead of GITHUB_TOKEN
-          GH_TOKEN: ${{ secrets.HMD_ARCHIVE_TOKEN }}
         run: |
           chmod +x ./build_and_push.sh
-          ./build_and_push.sh "${{ github.event.inputs.device_name }}"
+          ./build_and_push.sh "${{ secrets.HMD_ARCHIVE_TOKEN }}" "${{ github.event.inputs.device_name }}"
 
+      # SCHEDULED TRIGGER: Loop and pass the secret and device name as arguments
       - name: Run for all devices (Scheduled Trigger)
         if: github.event_name == 'schedule'
-        env:
-          # Use GH_TOKEN instead of GITHUB_TOKEN
-          GH_TOKEN: ${{ secrets.HMD_ARCHIVE_TOKEN }}
         run: |
-          # ... (The rest of this step remains the same)
           chmod +x ./build_and_push.sh
           JSON_REPO="crsvt/hmd-opensource-tracker"
           JSON_URL="https://raw.githubusercontent.com/${JSON_REPO}/main/hmd_versions.json"
-          echo "Fetching device list from $JSON_URL"
           DEVICE_LIST=$(curl -sL "$JSON_URL" | jq -r 'keys[]')
+
           while IFS= read -r device; do
             echo "-----------------------------------------------------"
             echo "Processing device: $device"
             echo "-----------------------------------------------------"
-            ./build_and_push.sh "$device"
+            ./build_and_push.sh "${{ secrets.HMD_ARCHIVE_TOKEN }}" "$device"
           done <<< "$DEVICE_LIST"
