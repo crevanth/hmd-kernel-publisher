@@ -29,14 +29,18 @@ echo "-> Fetching version data for '$DEVICE_HUMAN'..."
 JSON_URL="https://raw.githubusercontent.com/${JSON_REPO}/${JSON_BRANCH}/data/hmd_releases.json"
 JSON_DATA=$(curl -sL --fail "$JSON_URL") || { echo "Error: Failed to fetch JSON data from $JSON_URL" >&2; exit 1; }
 if ! echo "$JSON_DATA" | jq -e --arg device "$DEVICE_HUMAN" '.[$device]' > /dev/null; then echo "Error: Device '$DEVICE_HUMAN' not found..." >&2; exit 1; fi
-DEVICE_SLUG=$(echo "$DEVICE_HUMAN" | tr '[:upper:]' '[:lower:]' | sed -E 's/[ .()-]+/_/g')
-DEVICE_BRANCH=$(echo "$DEVICE_HUMAN" | sed -E 's/[ .()-]+/_/g')
+
+# --- MODIFIED NAMING LOGIC ---
+DEVICE_SLUG=$(echo "$DEVICE_HUMAN" | tr '[:upper:]' '[:lower:]' | sed -E 's/[ ()-]+/_/g')
+DEVICE_BRANCH=$(echo "$DEVICE_HUMAN" | sed -E 's/[()]+//g' | sed 's/ /_/' | sed 's/ /-/g')
+# --- END MODIFIED NAMING LOGIC ---
+
 GITHUB_REPO_NAME="android_kernel_${DEVICE_SLUG}"
 GITHUB_REPO_URL="${GITHUB_ORG}/${GITHUB_REPO_NAME}"
 REPO_DIR="./${GITHUB_REPO_NAME}"
 BRANCH_NAME="hmd/${DEVICE_BRANCH}"
 echo "=============================================="; echo "Device:          $DEVICE_HUMAN"; echo "GitHub Repo:     $GITHUB_REPO_URL"; echo "Local Directory: $REPO_DIR"; echo "Branch Name:     $BRANCH_NAME"; echo "==============================================";
-echo "-> Checking for existing GitHub repository..."; if ! gh repo view "$GITHUB_REPO_URL" >/dev/null 2>&1; then echo "-> Repository does not exist. Creating it now..."; gh repo create "$GITHUB_REPO_URL" --public --description "Kernel source history for the ${DEVICE_HUMAN}"; echo "-> Repository created successfully."; else echo "-> Repository already exists."; fi;
+echo "-> Checking for existing GitHub repository..."; if ! gh repo view "$GITHUB_REPO_URL" >/dev/null 2>&1; then echo "-> Repository does not exist. Creating it now..."; gh repo create "$GITHUB_REPO_URL" --public --description "Kernel source for ${DEVICE_HUMAN}"; echo "-> Repository created successfully."; else echo "-> Repository already exists."; fi;
 mkdir -p "$REPO_DIR"; cd "$REPO_DIR"; if [ ! -d .git ]; then git init; fi; git checkout -B "$BRANCH_NAME";
 grep -qxF ".DS_Store" .git/info/exclude 2>/dev/null || echo ".DS_Store" >> .git/info/exclude;
 grep -qxF ".cache_downloads/" .git/info/exclude 2>/dev/null || echo ".cache_downloads/" >> .git/info/exclude;
