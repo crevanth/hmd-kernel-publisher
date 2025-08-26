@@ -3,7 +3,7 @@ set -euo pipefail
 
 # =================== SCRIPT CONFIG ===================
 GITHUB_ORG="Nokia3-development"
-JSON_REPO="crevanth/hmd-opensource-tracker"
+JSON_REPO="crevanth/hmd-oss-scraper"
 JSON_BRANCH="main"
 # =====================================================
 
@@ -26,7 +26,7 @@ echo "-> Verifying authentication status silently..."; gh auth status &>/dev/nul
 
 # --- Fetch and Parse Data ---
 echo "-> Fetching version data for '$DEVICE_HUMAN'..."
-JSON_URL="https://raw.githubusercontent.com/${JSON_REPO}/${JSON_BRANCH}/hmd_versions.json"
+JSON_URL="https://raw.githubusercontent.com/${JSON_REPO}/${JSON_BRANCH}/data/hmd_releases.json"
 JSON_DATA=$(curl -sL --fail "$JSON_URL") || { echo "Error: Failed to fetch JSON data from $JSON_URL" >&2; exit 1; }
 if ! echo "$JSON_DATA" | jq -e --arg device "$DEVICE_HUMAN" '.[$device]' > /dev/null; then echo "Error: Device '$DEVICE_HUMAN' not found..." >&2; exit 1; fi
 DEVICE_SLUG=$(echo "$DEVICE_HUMAN" | tr '[:upper:]' '[:lower:]' | sed -E 's/[ .()-]+/_/g')
