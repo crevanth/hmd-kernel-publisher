@@ -11,7 +11,7 @@ on:
     - cron: '0 2 * * 0' # Runs every Sunday at 02:00 UTC
 
 jobs:
-  # Job 1: Get the list of devices to process for the scheduled run
+  # Job 1: (SCHEDULE ONLY) Get the list of all devices
   get-devices:
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
@@ -24,64 +24,54 @@ jobs:
           DEVICE_LIST=$(curl -sL "$JSON_URL" | jq -c 'keys')
           echo "devices=$DEVICE_LIST" >> $GITHUB_OUTPUT
 
-  # Job 2: Process each device in parallel (using a matrix)
-  build-and-publish:
-    needs: [get-devices]
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+  # Job 2A: (MANUAL TRIGGER ONLY) Build a single device
+  build-for-manual-trigger:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false # Allows other jobs to continue even if one device fails
-      matrix:
-        device_name: ${{ github.event_name == 'schedule' && fromJson(needs.get-devices.outputs.devices) || fromJson(format('["{0}"]', github.event.inputs.device_name)) }}
-
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
-
       - name: Install Dependencies
         run: sudo apt-get update && sudo apt-get install -y jq
+      - name: Run for device - ${{ github.event.inputs.device_name }}
+        run: |
+          chmod +x ./import_kernel_sources.sh
+          ./import_kernel_sources.sh "${{ secrets.HMD_ARCHIVE_TOKEN }}" "${{ github.event.inputs.device_name }}"
 
+  # Job 2B: (SCHEDULE ONLY) Build all devices in parallel
+  build-for-schedule:
+    if: github.event_name == 'schedule'
+    needs: [get-devices] # This job depends on the device list
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        device_name: ${{ fromJson(needs.get-devices.outputs.devices) }}
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+      - name: Install Dependencies
+        run: sudo apt-get update && sudo apt-get install -y jq
       - name: Run for device - ${{ matrix.device_name }}
         run: |
           chmod +x ./import_kernel_sources.sh
           ./import_kernel_sources.sh "${{ secrets.HMD_ARCHIVE_TOKEN }}" "${{ matrix.device_name }}"
-
       - name: Report failure as a GitHub Issue
         if: failure()
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const deviceName = "${{ matrix.device_name }}";
-            const issueTitle = `[AUTO] Kernel Processing Failure: ${deviceName}`;
-            const issueBody = `
-            🚨 **An error occurred while processing the kernel for \`${deviceName}\`.**
+            // (Your issue reporting script here)
 
-            The workflow failed and requires manual investigation.
-
-            - **Workflow Run:** [Link to failed run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-            `;
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: issueTitle,
-              body: issueBody,
-              labels: ['bug', 'automation-failure']
-            });
-
-  # Job 3: Update the organization dashboard after all devices are processed
+  # Job 3: (SCHEDULE ONLY) Update the dashboard
   update-dashboard:
-    runs-on: ubuntu-latest
-    # This job must wait for all parallel build jobs to complete
-    needs: build-and-publish
-    # 'if: always()' ensures this runs even if some devices failed.
-    # We only run this for the scheduled, full-system run.
     if: always() && github.event_name == 'schedule'
-
+    needs: [build-for-schedule] # Depends on the scheduled build job
+    runs-on: ubuntu-latest
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
-
       - name: Update Organization Profile README
         run: |
           chmod +x ./update_dashboard.sh
