@@ -8,7 +8,7 @@ on:
         required: true
         type: string
   schedule:
-    - cron: '0 2 * * 0' # Runs every Sunday at 02:00 UTC
+    - cron: '0 3 * * 3,5'
 
 jobs:
   # Job 1: (SCHEDULE ONLY) Get the list of all devices
