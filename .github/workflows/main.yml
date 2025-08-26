@@ -25,14 +25,14 @@ jobs:
       - name: Run for a specific device (Manual Trigger)
         if: github.event_name == 'workflow_dispatch'
         run: |
-          chmod +x ./build_and_push.sh
-          ./build_and_push.sh "${{ secrets.HMD_ARCHIVE_TOKEN }}" "${{ github.event.inputs.device_name }}"
+          chmod +x ./import_kernel_sources.sh
+          ./import_kernel_sources.sh "${{ secrets.HMD_ARCHIVE_TOKEN }}" "${{ github.event.inputs.device_name }}"
 
       # SCHEDULED TRIGGER: Loop and pass the secret and device name as arguments
       - name: Run for all devices (Scheduled Trigger)
         if: github.event_name == 'schedule'
         run: |
-          chmod +x ./build_and_push.sh
+          chmod +x ./import_kernel_sources.sh
           JSON_REPO="crsvt/hmd-opensource-tracker"
           JSON_URL="https://raw.githubusercontent.com/${JSON_REPO}/main/hmd_versions.json"
           DEVICE_LIST=$(curl -sL "$JSON_URL" | jq -r 'keys[]')
@@ -41,5 +41,5 @@ jobs:
             echo "-----------------------------------------------------"
             echo "Processing device: $device"
             echo "-----------------------------------------------------"
-            ./build_and_push.sh "${{ secrets.HMD_ARCHIVE_TOKEN }}" "$device"
+            ./import_kernel_sources.sh "${{ secrets.HMD_ARCHIVE_TOKEN }}" "$device"
           done <<< "$DEVICE_LIST"
