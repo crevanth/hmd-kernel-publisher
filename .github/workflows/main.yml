@@ -11,7 +11,7 @@ on:
     - cron: '0 2 * * 0' # Runs every Sunday at 02:00 UTC
 
 jobs:
-  # This job gets the list of devices to process for the scheduled run
+  # Job 1: Get the list of devices to process for the scheduled run
   get-devices:
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
@@ -24,17 +24,14 @@ jobs:
           DEVICE_LIST=$(curl -sL "$JSON_URL" | jq -c 'keys')
           echo "devices=$DEVICE_LIST" >> $GITHUB_OUTPUT
 
-  # This job processes each device, either from a manual trigger or the matrix
+  # Job 2: Process each device in parallel (using a matrix)
   build-and-publish:
-    # This makes the scheduled run depend on the get-devices job
     needs: [get-devices]
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false # IMPORTANT: Allows other jobs to continue if one fails
+      fail-fast: false # Allows other jobs to continue even if one device fails
       matrix:
-        # For scheduled runs, use the device list from the previous job
-        # For manual runs, create a single-item array from the input
         device_name: ${{ github.event_name == 'schedule' && fromJson(needs.get-devices.outputs.devices) || fromJson(format('["{0}"]', github.event.inputs.device_name)) }}
 
     steps:
@@ -49,7 +46,6 @@ jobs:
           chmod +x ./import_kernel_sources.sh
           ./import_kernel_sources.sh "${{ secrets.HMD_ARCHIVE_TOKEN }}" "${{ matrix.device_name }}"
 
-      # THIS IS THE NEW STEP FOR FAILURE NOTIFICATION
       - name: Report failure as a GitHub Issue
         if: failure()
         uses: actions/github-script@v7
@@ -72,3 +68,21 @@ jobs:
               body: issueBody,
               labels: ['bug', 'automation-failure']
             });
+
+  # Job 3: Update the organization dashboard after all devices are processed
+  update-dashboard:
+    runs-on: ubuntu-latest
+    # This job must wait for all parallel build jobs to complete
+    needs: build-and-publish
+    # 'if: always()' ensures this runs even if some devices failed.
+    # We only run this for the scheduled, full-system run.
+    if: always() && github.event_name == 'schedule'
+
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+
+      - name: Update Organization Profile README
+        run: |
+          chmod +x ./update_dashboard.sh
+          ./update_dashboard.sh "${{ secrets.HMD_ARCHIVE_TOKEN }}"
