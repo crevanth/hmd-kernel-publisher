@@ -38,7 +38,6 @@ BRANCH_NAME="hmd/${DEVICE_BRANCH}"
 echo "=============================================="; echo "Device:          $DEVICE_HUMAN"; echo "GitHub Repo:     $GITHUB_REPO_URL"; echo "Local Directory: $REPO_DIR"; echo "Branch Name:     $BRANCH_NAME"; echo "==============================================";
 echo "-> Checking for existing GitHub repository..."; if ! gh repo view "$GITHUB_REPO_URL" >/dev/null 2>&1; then echo "-> Repository does not exist. Creating it now..."; gh repo create "$GITHUB_REPO_URL" --public --description "Kernel source history for the ${DEVICE_HUMAN}"; echo "-> Repository created successfully."; else echo "-> Repository already exists."; fi;
 mkdir -p "$REPO_DIR"; cd "$REPO_DIR"; if [ ! -d .git ]; then git init; fi; git checkout -B "$BRANCH_NAME";
-# --- Using Code 1 logic for gitignore ---
 grep -qxF ".DS_Store" .git/info/exclude 2>/dev/null || echo ".DS_Store" >> .git/info/exclude;
 grep -qxF ".cache_downloads/" .git/info/exclude 2>/dev/null || echo ".cache_downloads/" >> .git/info/exclude;
 CACHE_DIR="$PWD/.cache_downloads"; mkdir -p "$CACHE_DIR";
@@ -51,6 +50,10 @@ else
     git remote set-url origin "$REMOTE_URL"
 fi
 git fetch --tags origin || true
+
+# --- FIX: Sync with remote branch before making new commits ---
+echo "-> Syncing with remote to prevent push errors..."
+git pull --rebase origin "$BRANCH_NAME" || true
 
 echo "$JSON_DATA" | jq -r --arg device "$DEVICE_HUMAN" '.[$device][] | "\(.name) \(.link)"' | while read -r ARCHIVE_NAME URL; do
     TAG="${ARCHIVE_NAME%.tar.*}"; LOCAL="${CACHE_DIR}/${ARCHIVE_NAME}";
