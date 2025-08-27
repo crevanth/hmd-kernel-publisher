@@ -8,7 +8,7 @@ on:
         required: false # Changed from true to false
         type: string
   schedule:
-    - cron: '0 3 * * 3,5'
+    - cron: '0 3 * * 3,4'
 
 jobs:
   # Job 1: Get the list of all devices for a scheduled run or a full manual run
