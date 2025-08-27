@@ -2,7 +2,6 @@
 set -euo pipefail
 
 # --- Script Config ---
-# Ensure GITHUB_ORG is updated to your chosen organization name, e.g., "NokiaOSS-Archive"
 GITHUB_ORG="Nokia3-development"
 PROFILE_REPO_NAME=".github"
 PROFILE_REPO_URL="https://github.com/${GITHUB_ORG}/${PROFILE_REPO_NAME}.git"
@@ -54,12 +53,11 @@ echo "-> Building new README content..."
   gh repo list "$GITHUB_ORG" --json name,description,pushedAt,url --jq '.[] | select(.name | startswith("android_kernel_"))' | while read -r line; do
     REPO_NAME=$(echo "$line" | jq -r '.name')
     REPO_URL=$(echo "$line" | jq -r '.url')
-    # Extract "Nokia X.X" from description "Kernel source for Nokia X.X"
     DEVICE_NAME=$(echo "$line" | jq -r '.description' | sed 's/Kernel source for //')
-    LAST_UPDATED=$(echo "$line" | jq -r '.pushedAt' | sed 's/T.*$//') # Format date to YYYY-MM-DD
+    LAST_UPDATED=$(echo "$line" | jq -r '.pushedAt' | sed 's/T.*$//')
 
-    # Get the latest tag without cloning the whole repo
-    LATEST_TAG=$(git ls-remote --tags --sort="-v:refname" "$REPO_URL" | head -n 1 | sed 's|.*/\([^/]*\)$|\1|')
+    # MODIFICATION: Use 'gh api' to reliably get the latest tag without causing SIGPIPE
+    LATEST_TAG=$(gh api "repos/${GITHUB_ORG}/${REPO_NAME}/tags" --jq '.[0].name // ""')
 
     if [ -z "$LATEST_TAG" ]; then
       LATEST_TAG="*pending*"
