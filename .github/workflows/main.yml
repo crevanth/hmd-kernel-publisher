@@ -4,16 +4,16 @@ on:
   workflow_dispatch:
     inputs:
       device_name:
-        description: 'Device name to build (e.g., "Nokia 3.1")'
-        required: true
+        description: 'Device name to build (e.g., "Nokia 3.1"). Leave empty to run for all devices.'
+        required: false # Changed from true to false
         type: string
   schedule:
     - cron: '0 3 * * 3,5'
 
 jobs:
-  # Job 1: (SCHEDULE ONLY) Get the list of all devices
+  # Job 1: Get the list of all devices for a scheduled run or a full manual run
   get-devices:
-    if: github.event_name == 'schedule'
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.device_name == '')
     runs-on: ubuntu-latest
     outputs:
       devices: ${{ steps.set-matrix.outputs.devices }}
@@ -24,9 +24,9 @@ jobs:
           DEVICE_LIST=$(curl -sL "$JSON_URL" | jq -c 'keys')
           echo "devices=$DEVICE_LIST" >> $GITHUB_OUTPUT
 
-  # Job 2A: (MANUAL TRIGGER ONLY) Build a single device
+  # Job 2A: (MANUAL TRIGGER W/ DEVICE NAME) Build a single device
   build-for-manual-trigger:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.device_name != ''
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository code
@@ -38,10 +38,10 @@ jobs:
           chmod +x ./import_kernel_sources.sh
           ./import_kernel_sources.sh "${{ secrets.HMD_ARCHIVE_TOKEN }}" "${{ github.event.inputs.device_name }}"
 
-  # Job 2B: (SCHEDULE ONLY) Build all devices in parallel
+  # Job 2B: (SCHEDULE OR FULL MANUAL RUN) Build all devices in parallel
   build-for-schedule:
-    if: github.event_name == 'schedule'
-    needs: [get-devices] # This job depends on the device list
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.device_name == '')
+    needs: [get-devices]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -64,10 +64,10 @@ jobs:
           script: |
             // (Your issue reporting script here)
 
-  # Job 3: (SCHEDULE ONLY) Update the dashboard
+  # Job 3: (SCHEDULE OR FULL MANUAL RUN) Update the dashboard
   update-dashboard:
-    if: always() && github.event_name == 'schedule'
-    needs: [build-for-schedule] # Depends on the scheduled build job
+    if: always() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.device_name == ''))
+    needs: [build-for-schedule]
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository code
