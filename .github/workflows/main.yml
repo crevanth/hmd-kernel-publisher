@@ -7,8 +7,6 @@ on:
         description: 'Device name to build (e.g., "Nokia 3.1"). Leave empty to run for all devices.'
         required: false # Changed from true to false
         type: string
-  schedule:
-    - cron: '0 3 * * 3,4'
 
 jobs:
   # Job 1: Get the list of all devices for a scheduled run or a full manual run
