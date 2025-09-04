@@ -30,7 +30,11 @@ JSON_URL="https://raw.githubusercontent.com/${JSON_REPO}/${JSON_BRANCH}/data/hmd
 JSON_DATA=$(curl -sL --fail "$JSON_URL") || { echo "Error: Failed to fetch JSON data from $JSON_URL" >&2; exit 1; }
 if ! echo "$JSON_DATA" | jq -e --arg device "$DEVICE_HUMAN" '.[$device]' > /dev/null; then echo "Error: Device '$DEVICE_HUMAN' not found..." >&2; exit 1; fi
 
-DEVICE_SLUG=$(echo "$DEVICE_HUMAN" | tr '[:upper:]' '[:lower:]' | sed -e 's/+/ plus/' -e 's/[^a-z0-9]+/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')
+DEVICE_SLUG=$(echo "$DEVICE_HUMAN" | tr '[:upper:]' '[:lower:]' | \
+  sed 's/+/ plus/g' | \
+  sed -E 's/[ ()-]+/_/g' | \
+  sed 's/__+/_/g'
+)
 DEVICE_BRANCH=$(echo "$DEVICE_HUMAN" | sed -E 's/[()]+//g' | sed 's/ /_/' | sed 's/ /-/g')
 
 GITHUB_REPO_NAME="android_kernel_${DEVICE_SLUG}"
