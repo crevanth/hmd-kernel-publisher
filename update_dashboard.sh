@@ -43,6 +43,28 @@ echo "-> Building new README content..."
   echo "---"
   # --- END: Enhanced Disclaimer ---
   echo ""
+  echo "## How to Use This Archive"
+  echo ""
+  echo "Each device has its own dedicated repository. The history of the main branch in each repository reflects the latest available kernel source."
+  echo ""
+  echo "### Finding a Specific Version"
+  echo ""
+  echo "Every official kernel source release is tied to a unique **Git tag**. To find the source code for a specific firmware version (e.g., \`NE1_00WW_4_14F\`):"
+  echo ""
+  echo "1.  Navigate to the device's repository."
+  echo "2.  Click on the \"Releases\" or \"Tags\" section."
+  echo "3.  You can download the source as a \`.zip\` or \`.tar.gz\` file for that specific tag, or check out the tag directly using Git."
+  echo ""
+  echo "### Understanding the Dashboard"
+  echo ""
+  echo "The table below provides a summary of all archived devices."
+  echo ""
+  echo "-   **Latest Kernel Version**: Shows the most recent version successfully imported."
+  echo "    -   A warning icon (**⚠️**) indicates that the *latest* scheduled import for that device failed (e.g., the download link was broken or the archive was invalid), but a previous version is available."
+  echo "    -   \`*Import Failed*\` means the automation was never able to import a valid kernel for that device."
+  echo ""
+  echo "---"
+  echo ""
   echo "## Device Kernel Repositories"
   echo ""
   # Table Header
@@ -58,12 +80,30 @@ echo "-> Building new README content..."
 
     # MODIFICATION: Use 'gh api' to reliably get the latest tag without causing SIGPIPE
     LATEST_TAG=$(gh api "repos/${GITHUB_ORG}/${REPO_NAME}/tags" --jq '.[0].name // ""')
+    VERSION_CELL="" # Initialize
 
     if [ -z "$LATEST_TAG" ]; then
-      LATEST_TAG="*pending*"
+      VERSION_CELL="*pending*"
+    else
+      # Check if the latest tag indicates a failure
+      if [[ "$LATEST_TAG" == *"MISSING"* || "$LATEST_TAG" == *"CORRUPTED"* ]]; then
+        # Find the last good tag by fetching all tags and filtering out the bad ones
+        LAST_GOOD_TAG=$(gh api "repos/${GITHUB_ORG}/${REPO_NAME}/tags" --jq -r '[.[] | .name | select(contains("MISSING") | not) | select(contains("CORRUPTED") | not)][0] // ""')
+        
+        if [ -n "$LAST_GOOD_TAG" ]; then
+          # A previous good version exists
+          VERSION_CELL="\`${LAST_GOOD_TAG}\` (⚠️ Latest Failed)"
+        else
+          # No good versions exist at all for this repo
+          VERSION_CELL="*Import Failed*"
+        fi
+      else
+        # Latest tag is a good one
+        VERSION_CELL="\`${LATEST_TAG}\`"
+      fi
     fi
 
-    echo "| **${DEVICE_NAME}** | \`${LATEST_TAG}\` | ${LAST_UPDATED} | [${REPO_NAME}](${REPO_URL}) |"
+    echo "| **${DEVICE_NAME}** | ${VERSION_CELL} | ${LAST_UPDATED} | [${REPO_NAME}](${REPO_URL}) |"
   done
 } > "$README_PATH"
 
